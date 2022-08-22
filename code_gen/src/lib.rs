@@ -1,4 +1,4 @@
-mod parse;
+mod lex;
 
 use proc_macro2::TokenStream;
 use quote::quote;

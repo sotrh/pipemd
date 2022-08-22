@@ -1,7 +1,7 @@
 use std::str::CharIndices;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Token<'a> {
+pub enum Token<'a> {
     Ident(&'a str),
     String(&'a str),
     Hash,
@@ -17,7 +17,7 @@ struct Span {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SpannedStr<'a> {
+pub struct SpannedStr<'a> {
     src: &'a str,
     span: Span,
 }
@@ -63,8 +63,7 @@ impl<'a> SpannedStr<'a> {
         let mut new_start = start_byte;
         let mut iter = src.char_indices().take(n + 1);
         let mut num = 0;
-        while let Some((i, _)) = iter.next()
-        {
+        while let Some((i, _)) = iter.next() {
             new_start = start_byte + i;
             num += 1;
         }
@@ -93,7 +92,7 @@ pub enum ParseError {
     NonterminatedString,
 }
 
-fn parse<'a>(src: &'a str, matcher: impl Fn(char, usize) -> bool) -> SpannedStr<'a> {
+pub fn lex<'a>(src: &'a str, matcher: impl Fn(char, usize) -> bool) -> SpannedStr<'a> {
     let mut chars = src.char_indices();
     let mut span = Span {
         start_byte: 0,
@@ -116,13 +115,13 @@ fn parse<'a>(src: &'a str, matcher: impl Fn(char, usize) -> bool) -> SpannedStr<
     SpannedStr { src, span }
 }
 
-fn parse_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>), ParseError> {
-    let span = parse(src, |c, _| c.is_whitespace());
+pub fn lex_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>), ParseError> {
+    let span = lex(src, |c, _| c.is_whitespace());
     let span = span.remaining().ok_or(ParseError::EndOfInput)?;
 
     match span.first_char().ok_or(ParseError::EndOfInput)? {
         c if c.is_alphabetic() || c == '_' => {
-            let data = parse(span.substring(), |c, _| c.is_alphanumeric() || c == '_');
+            let data = lex(span.substring(), |c, _| c.is_alphanumeric() || c == '_');
             Ok((Token::Ident(data.substring()), data.remaining()))
         }
         c if c == '#' => Ok((Token::Hash, span.skip(1))),
@@ -131,7 +130,7 @@ fn parse_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>), 
         c if c == ',' => Ok((Token::Comma, span.skip(1))),
         c if c == '"' => {
             let data = span.skip(1).ok_or(ParseError::NonterminatedString)?;
-            let data = parse(data.substring(), |c, _| {
+            let data = lex(data.substring(), |c, _| {
                 println!("c = {}", c);
                 c != '"' && c != '\n'
             });
@@ -139,7 +138,7 @@ fn parse_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>), 
             if remaining.first_char() != Some('"') {
                 return Err(ParseError::NonterminatedString);
             }
-            
+
             Ok((Token::String(data.substring()), remaining.skip(1)))
         }
         c => Err(ParseError::InvalidChar(c)),
@@ -202,15 +201,33 @@ mod tests {
     #[test]
     fn spanned_str_skip() {
         let original = "abc🚀def";
-        assert_eq!("abc🚀def", SpannedStr::from(original).skip(0).unwrap().substring());
-        assert_eq!("bc🚀def", SpannedStr::from(original).skip(1).unwrap().substring());
-        assert_eq!("c🚀def", SpannedStr::from(original).skip(2).unwrap().substring());
+        assert_eq!(
+            "abc🚀def",
+            SpannedStr::from(original).skip(0).unwrap().substring()
+        );
+        assert_eq!(
+            "bc🚀def",
+            SpannedStr::from(original).skip(1).unwrap().substring()
+        );
+        assert_eq!(
+            "c🚀def",
+            SpannedStr::from(original).skip(2).unwrap().substring()
+        );
         let data = SpannedStr::from(original).skip(1).unwrap();
         println!("data = {}", data.substring());
         assert_eq!("c🚀def", data.skip(1).unwrap().substring());
-        assert_eq!("🚀def", SpannedStr::from(original).skip(3).unwrap().substring());
-        assert_eq!("def", SpannedStr::from(original).skip(4).unwrap().substring());
-        assert_eq!("ef", SpannedStr::from(original).skip(5).unwrap().substring());
+        assert_eq!(
+            "🚀def",
+            SpannedStr::from(original).skip(3).unwrap().substring()
+        );
+        assert_eq!(
+            "def",
+            SpannedStr::from(original).skip(4).unwrap().substring()
+        );
+        assert_eq!(
+            "ef",
+            SpannedStr::from(original).skip(5).unwrap().substring()
+        );
         assert_eq!("f", SpannedStr::from(original).skip(6).unwrap().substring());
         assert_eq!(None, SpannedStr::from(original).skip(7));
         assert_eq!(None, SpannedStr::from(original).skip(8));
@@ -219,14 +236,14 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert_eq!("   ", parse("   abc", |c, _| c == ' ').substring());
-        assert_eq!("   ", parse("   ", |c, _| c == ' ').substring());
-        assert_eq!("", parse("abc   ", |c, _| c == ' ').substring());
-        assert_eq!("🚀🚀🚀", parse("🚀🚀🚀   ", |c, _| c == '🚀').substring());
-        assert_eq!("🚀🚀🚀", parse("🚀🚀🚀", |c, _| c == '🚀').substring());
+        assert_eq!("   ", lex("   abc", |c, _| c == ' ').substring());
+        assert_eq!("   ", lex("   ", |c, _| c == ' ').substring());
+        assert_eq!("", lex("abc   ", |c, _| c == ' ').substring());
+        assert_eq!("🚀🚀🚀", lex("🚀🚀🚀   ", |c, _| c == '🚀').substring());
+        assert_eq!("🚀🚀🚀", lex("🚀🚀🚀", |c, _| c == '🚀').substring());
         assert_eq!(
             "🚀a🚀b🚀c",
-            parse("🚀a🚀b🚀c", |c, _| c == '🚀'
+            lex("🚀a🚀b🚀c", |c, _| c == '🚀'
                 || c == 'a'
                 || c == 'b'
                 || c == 'c')
@@ -236,15 +253,18 @@ mod tests {
 
     #[test]
     fn test_parse_token() {
-        assert_eq!(Token::Ident("test"), parse_token("  test   ").unwrap().0);
-        assert_eq!(Token::Hash, parse_token("  #   ").unwrap().0);
-        assert_eq!(Token::LeftParen, parse_token("  (   ").unwrap().0);
-        assert_eq!(Token::RightParen, parse_token("  )   ").unwrap().0);
-        assert_eq!(Token::Comma, parse_token("  ,   ").unwrap().0);
-        assert_eq!(Token::String("test()a;sldkfj"), parse_token("  \"test()a;sldkfj\"   ").unwrap().0);
-        assert_eq!(Err(ParseError::EndOfInput), parse_token("     "));
-        assert_eq!(Err(ParseError::InvalidChar('$')), parse_token("   $  "));
-        assert_eq!(Err(ParseError::NonterminatedString), parse_token("  \""));
-        assert_eq!(Err(ParseError::NonterminatedString), parse_token("  \"\n\""));
+        assert_eq!(Token::Ident("test"), lex_token("  test   ").unwrap().0);
+        assert_eq!(Token::Hash, lex_token("  #   ").unwrap().0);
+        assert_eq!(Token::LeftParen, lex_token("  (   ").unwrap().0);
+        assert_eq!(Token::RightParen, lex_token("  )   ").unwrap().0);
+        assert_eq!(Token::Comma, lex_token("  ,   ").unwrap().0);
+        assert_eq!(
+            Token::String("test()a;sldkfj"),
+            lex_token("  \"test()a;sldkfj\"   ").unwrap().0
+        );
+        assert_eq!(Err(ParseError::EndOfInput), lex_token("     "));
+        assert_eq!(Err(ParseError::InvalidChar('$')), lex_token("   $  "));
+        assert_eq!(Err(ParseError::NonterminatedString), lex_token("  \""));
+        assert_eq!(Err(ParseError::NonterminatedString), lex_token("  \"\n\""));
     }
 }
