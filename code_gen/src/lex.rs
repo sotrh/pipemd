@@ -8,6 +8,45 @@ pub enum Token<'a> {
     Comma,
     LeftParen,
     RightParen,
+    Colon,
+}
+
+pub struct TokenStream<'a> {
+    index: usize,
+    tokens: Vec<Token<'a>>,
+}
+
+impl<'a> TokenStream<'a> {
+    pub fn new(src: &'a str) -> Result<Self, LexError> {
+        let mut tokens = Vec::new();
+        let (token, mut remaining) = lex_token(src)?;
+        tokens.push(token);
+        while let Some(span) = remaining {
+            let (token, new_remaining) = match lex_token(span.substring()) {
+                Err(LexError::EndOfInput) => break,
+                e => e?,
+            };
+            tokens.push(token);
+            remaining = new_remaining;
+        }
+        Ok(Self { tokens, index: 0 })
+    }
+
+    pub fn peek(&self) -> Option<Token<'a>> {
+        if self.index < self.tokens.len() {
+            Some(self.tokens[self.index])
+        } else {
+            None
+        }
+    }
+
+    pub fn next(&mut self) -> Option<Token<'a>> {
+        let token = self.peek();
+        if token.is_some() {
+            self.index += 1;
+        }
+        token
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,7 +122,7 @@ impl<'a> From<&'a str> for SpannedStr<'a> {
 }
 
 #[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq)]
-pub enum ParseError {
+pub enum LexError {
     #[error("Reached end of input")]
     EndOfInput,
     #[error("Encountered invalid character: {0}")]
@@ -115,11 +154,11 @@ pub fn lex<'a>(src: &'a str, matcher: impl Fn(char, usize) -> bool) -> SpannedSt
     SpannedStr { src, span }
 }
 
-pub fn lex_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>), ParseError> {
+pub fn lex_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>), LexError> {
     let span = lex(src, |c, _| c.is_whitespace());
-    let span = span.remaining().ok_or(ParseError::EndOfInput)?;
+    let span = span.remaining().ok_or(LexError::EndOfInput)?;
 
-    match span.first_char().ok_or(ParseError::EndOfInput)? {
+    match span.first_char().ok_or(LexError::EndOfInput)? {
         c if c.is_alphabetic() || c == '_' => {
             let data = lex(span.substring(), |c, _| c.is_alphanumeric() || c == '_');
             Ok((Token::Ident(data.substring()), data.remaining()))
@@ -128,26 +167,34 @@ pub fn lex_token<'a>(src: &'a str) -> Result<(Token<'a>, Option<SpannedStr<'a>>)
         c if c == '(' => Ok((Token::LeftParen, span.skip(1))),
         c if c == ')' => Ok((Token::RightParen, span.skip(1))),
         c if c == ',' => Ok((Token::Comma, span.skip(1))),
+        c if c == ':' => Ok((Token::Colon, span.skip(1))),
         c if c == '"' => {
-            let data = span.skip(1).ok_or(ParseError::NonterminatedString)?;
+            let data = span.skip(1).ok_or(LexError::NonterminatedString)?;
             let data = lex(data.substring(), |c, _| {
-                println!("c = {}", c);
                 c != '"' && c != '\n'
             });
-            let remaining = data.remaining().ok_or(ParseError::NonterminatedString)?;
+            let remaining = data.remaining().ok_or(LexError::NonterminatedString)?;
             if remaining.first_char() != Some('"') {
-                return Err(ParseError::NonterminatedString);
+                return Err(LexError::NonterminatedString);
             }
 
             Ok((Token::String(data.substring()), remaining.skip(1)))
         }
-        c => Err(ParseError::InvalidChar(c)),
+        c => Err(LexError::InvalidChar(c)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[inline]
+    fn just_token<'a>(
+        tok: Result<(Token<'a>, Option<SpannedStr<'a>>), LexError>,
+    ) -> Result<Token<'a>, LexError> {
+        tok.map(|(t, _)| t)
+    }
+
     #[test]
     fn spanned_str_substring() {
         assert_eq!("sub", SpannedStr::new("substring", 0, 3).substring());
@@ -253,18 +300,90 @@ mod tests {
 
     #[test]
     fn test_parse_token() {
-        assert_eq!(Token::Ident("test"), lex_token("  test   ").unwrap().0);
-        assert_eq!(Token::Hash, lex_token("  #   ").unwrap().0);
-        assert_eq!(Token::LeftParen, lex_token("  (   ").unwrap().0);
-        assert_eq!(Token::RightParen, lex_token("  )   ").unwrap().0);
-        assert_eq!(Token::Comma, lex_token("  ,   ").unwrap().0);
+        assert_eq!(Token::Ident("test"), just_token(lex_token("  test   ")).unwrap());
+        assert_eq!(Token::Hash, just_token(lex_token("  #   ")).unwrap());
+        assert_eq!(Token::LeftParen, just_token(lex_token("  (   ")).unwrap());
+        assert_eq!(Token::RightParen, just_token(lex_token("  )   ")).unwrap());
+        assert_eq!(Token::Comma, just_token(lex_token("  ,   ")).unwrap());
         assert_eq!(
             Token::String("test()a;sldkfj"),
             lex_token("  \"test()a;sldkfj\"   ").unwrap().0
         );
-        assert_eq!(Err(ParseError::EndOfInput), lex_token("     "));
-        assert_eq!(Err(ParseError::InvalidChar('$')), lex_token("   $  "));
-        assert_eq!(Err(ParseError::NonterminatedString), lex_token("  \""));
-        assert_eq!(Err(ParseError::NonterminatedString), lex_token("  \"\n\""));
+        assert_eq!(
+            Ok(Token::Colon),
+            just_token(lex_token("  :   ")),
+        );
+        assert_eq!(Err(LexError::EndOfInput), lex_token("     "));
+        assert_eq!(Err(LexError::InvalidChar('$')), lex_token("   $  "));
+        assert_eq!(Err(LexError::NonterminatedString), lex_token("  \""));
+        assert_eq!(Err(LexError::NonterminatedString), lex_token("  \"\n\""));
+    }
+
+    #[test]
+    fn token_stream_peek() {
+        let mut tokens = TokenStream::new("#render_pipeline()").unwrap();
+        let expected = [
+            Token::Hash,
+            Token::Ident("render_pipeline"),
+            Token::LeftParen,
+            Token::RightParen,
+        ];
+        for t in expected {
+            assert_eq!(Some(t), tokens.peek());
+            assert_eq!(tokens.peek(), tokens.peek());
+            assert_eq!(Some(t), tokens.next());
+        }
+        assert_eq!(None, tokens.peek());
+        assert_eq!(None, tokens.next());
+    }
+
+    #[test]
+    fn token_stream_next() {
+        let mut tokens = TokenStream::new("#render_pipeline()").unwrap();
+        let expected = [
+            Token::Hash,
+            Token::Ident("render_pipeline"),
+            Token::LeftParen,
+            Token::RightParen,
+        ];
+        for t in expected {
+            assert_eq!(Some(t), tokens.next());
+        }
+        assert_eq!(None, tokens.next());
+        assert_eq!(None, tokens.next());
+    }
+
+    #[test]
+    fn token_stream_multiline_string() {
+        let config = r#"
+            #render_pipeline(
+                name: "TexturedPipeline",
+                vs_entry: "vs_textured",
+                fs_entry: "fs_textured",
+            )
+        "#;
+        let mut tokens = TokenStream::new(config).unwrap();
+        let expected = [
+            Token::Hash,
+            Token::Ident("render_pipeline"),
+            Token::LeftParen,
+            Token::Ident("name"),
+            Token::Colon,
+            Token::String("TexturedPipeline"),
+            Token::Comma,
+            Token::Ident("vs_entry"),
+            Token::Colon,
+            Token::String("vs_textured"),
+            Token::Comma,
+            Token::Ident("fs_entry"),
+            Token::Colon,
+            Token::String("fs_textured"),
+            Token::Comma,
+            Token::RightParen,
+        ];
+        for t in expected {
+            assert_eq!(Some(t), tokens.next());
+        }
+        assert_eq!(None, tokens.next());
     }
 }

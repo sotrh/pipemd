@@ -1,4 +1,5 @@
 mod lex;
+mod config;
 
 use proc_macro2::TokenStream;
 use quote::quote;
