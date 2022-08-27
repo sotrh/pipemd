@@ -1,0 +1,6 @@
+render_pipeline(
+    name: "TexturedPipeline",
+    path: "./tests/texture.wgsl",
+    vs_entry: "vs_textured",
+    fs_entry: "fs_textured",
+)

@@ -1,9 +1,3 @@
-#render_pipeline(
-    name: "TexturedPipeline",
-    vs_entry: "vs_textured",
-    fs_entry: "fs_textured",
-)
-
 struct VSIn {
     @location(0) position: vec2<f32>,
     @location(1) uv: vec2<f32>,
